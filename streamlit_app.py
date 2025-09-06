@@ -172,10 +172,15 @@ if run_btn:
             df_final = pd.read_excel(excel_path)
         else:
             with st.spinner("Esecuzione di conversione_turni.py..."):
-                df_final, _ = run_conversion_script(script_path, excel_path, surname)
-            if df_final is None:
-                st.warning("`conversione_turni.py` è stato eseguito ma non ha creato `df_final`. Uso diretto del contenuto del file Excel come `df_final`.")
-                df_final = pd.read_excel(excel_path)
+                try:
+                    df_final, _ = run_conversion_script(script_path, excel_path, surname)
+                except NameError as e:
+                    if "morning" in str(e).lower():
+                        st.error("⚠️ Cognome non trovato nel file Excel.")
+                        st.stop()
+                    else:
+                        raise  # altri NameError vengono rialzati normalmente
+
 
         if not isinstance(df_final, pd.DataFrame):
             try:
