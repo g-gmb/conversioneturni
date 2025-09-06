@@ -56,9 +56,9 @@ if afternoon is not None: # Check if afternoon row was found
         if pd.notna(shift): # Only add if the shift is not NaN
             new_row = {
                 "Subject": shift,
-                "Start Date": date.strftime('%Y-%m-%d'),
+                "Start Date": date.strftime('%d-%m-%Y'),
                 "Start Time": "2:00 PM",
-                "End Date": date.strftime('%Y-%m-%d'),
+                "End Date": date.strftime('%d-%m-%Y'),
                 "End Time": "8:00 PM",
                 "All Day Event": "False"
             }
@@ -71,9 +71,9 @@ if night is not None: # Check if night row was found
         if pd.notna(shift): # Only add if the shift is not NaN
             new_row = {
                 "Subject": shift,
-                "Start Date": date.strftime('%Y-%m-%d'),
+                "Start Date": date.strftime('%d-%m-%Y'),
                 "Start Time": "8:00 PM",
-                "End Date": (date + pd.Timedelta(days=1)).strftime('%Y-%m-%d'),
+                "End Date": (date + pd.Timedelta(days=1)).strftime('%d-%m-%Y'),
                 "End Time": "8:00 AM",
                 "All Day Event": "False"
             }
