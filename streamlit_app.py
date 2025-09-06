@@ -6,28 +6,26 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
-from ics import Calendar, Event
+from ics import Calendar, Event  # ✅ di nuovo con libreria ics
 
 st.set_page_config(page_title="Convertitore Turni", page_icon="🗓️", layout="centered")
 st.title("Convertitore Turni")
 st.caption(
-    "Carica il tuo file Excel, inserisci il cognome e scarica il risultato in formato CSV o ICS per importarlo sul calnedario."
+    "Carica il tuo file Excel, inserisci il cognome e scarica il risultato in formato CSV o ICS per importarlo sul calendario."
 )
 
 # --- UI --------------------------------------------------------------------
 uploaded_xlsx = st.file_uploader("Carica il file Excel", type=["xlsx"], accept_multiple_files=False)
-surname_input = st.text_input("Cognome", help="scrivi il tuo cognome completo. Non c'è bisogno di differenziare maiuscole/minuscole.")
+surname_input = st.text_input("Cognome", help="Scrivi il tuo cognome completo. Non c'è bisogno di differenziare maiuscole/minuscole.")
 run_btn = st.button("Converti")
 
 # Helper per sanitizzare i nomi file
-
 def _sanitize(s: str) -> str:
     s = (s or "").strip()
     s = s.replace(" ", "_")
     return re.sub(r"[^A-Za-z0-9_-]", "", s)
 
 # --- Core runner ------------------------------------------------------------
-
 def run_conversion_script(script_path: Path, excel_path: Path, surname: str):
     init_globals = {
         "__name__": "__main__",
@@ -42,99 +40,40 @@ def run_conversion_script(script_path: Path, excel_path: Path, surname: str):
     df_final = exec_globals.get("df_final")
     return df_final, exec_globals
 
-# --- Utility mappature ------------------------------------------------------
-
-def _pick_col(df: pd.DataFrame, candidates: list[str]):
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
-
-_def_map = {
-    "subject": ["Subject", "Oggetto", "Titolo"],
-    "start_date": ["Start Date", "Data Inizio", "Data inizio", "Data"],
-    "start_time": ["Start Time", "Ora Inizio", "Ora inizio", "Ora"],
-    "end_date": ["End Date", "Data Fine", "Data fine"],
-    "end_time": ["End Time", "Ora Fine", "Ora fine"],
-    "allday": ["All Day Event", "Evento giornaliero", "Giornata intera"],
-    "description": ["Description", "Descrizione", "Note"],
-    "location": ["Location", "Luogo", "Sede"],
-}
-
-_truthy = {"true", "1", "yes", "y", "si", "sì", "x"}
-
-# --- Generatore ICS (dal CSV verificato) -----------------------------------
-
+# --- Generatore ICS (con libreria ics) -------------------------------------
 def csv_text_to_ics(csv_text: str) -> tuple[str, int]:
     df = pd.read_csv(io.StringIO(csv_text))
 
-    subj = _pick_col(df, _def_map["subject"]) or "Subject"
-    sd = _pick_col(df, _def_map["start_date"]) or "Start Date"
-    stime = _pick_col(df, _def_map["start_time"]) or "Start Time"
-    ed = _pick_col(df, _def_map["end_date"]) or "End Date"
-    etime = _pick_col(df, _def_map["end_time"]) or "End Time"
-    alld = _pick_col(df, _def_map["allday"])
-    desc = _pick_col(df, _def_map["description"])
-    loc = _pick_col(df, _def_map["location"])
+    subj = "Subject"
+    sd = "Start Date"
+    stime = "Start Time"
+    ed = "End Date"
+    etime = "End Time"
 
     cal = Calendar()
-
     for _, row in df.iterrows():
         try:
-            name = str(row.get(subj, "Evento")).strip() or "Evento"
+            subject = str(row[subj]).strip()
 
-            is_all_day = False
-            if alld is not None:
-                val = row.get(alld)
-                if pd.notna(val):
-                    is_all_day = str(val).strip().lower() in _truthy
+            start_str = f"{row[sd]} {row[stime]}"
+            end_str = f"{row[ed]} {row[etime]}"
 
-            start_date_val = row.get(sd)
-            end_date_val = row.get(ed, start_date_val)
-            start_time_val = row.get(stime, None)
-            end_time_val = row.get(etime, None)
+            start_dt = pd.to_datetime(start_str, dayfirst=True, errors="coerce")
+            end_dt = pd.to_datetime(end_str, dayfirst=True, errors="coerce")
 
-            if is_all_day or (pd.isna(start_time_val) and pd.isna(end_time_val)):
-                begin = pd.to_datetime(start_date_val, dayfirst=True, errors="coerce")
-                end = pd.to_datetime(end_date_val if pd.notna(end_date_val) else start_date_val, dayfirst=True, errors="coerce")
-                if pd.isna(begin):
-                    continue
-                if pd.isna(end):
-                    end = begin
+            if pd.isna(start_dt) or pd.isna(end_dt):
+                continue
 
-                ev = Event(name=name)
-                ev.begin = begin.date()
-                ev.end = end.date()
-                ev.make_all_day()
-            else:
-                begin = None
-                end = None
-                if pd.notna(start_date_val):
-                    if pd.notna(start_time_val) and str(start_time_val).strip():
-                        begin = pd.to_datetime(f"{start_date_val} {start_time_val}", dayfirst=True, errors="coerce")
-                    else:
-                        begin = pd.to_datetime(f"{start_date_val} 00:00", dayfirst=True, errors="coerce")
-                if pd.notna(end_date_val):
-                    if pd.notna(end_time_val) and str(end_time_val).strip():
-                        end = pd.to_datetime(f"{end_date_val} {end_time_val}", dayfirst=True, errors="coerce")
-                    elif pd.notna(begin):
-                        end = begin + pd.Timedelta(minutes=60)
+            ev = Event(name=subject)
+            ev.begin = start_dt.to_pydatetime()
+            ev.end = end_dt.to_pydatetime()
 
-                if begin is None or pd.isna(begin):
-                    continue
-                if end is None or pd.isna(end):
-                    end = begin + pd.Timedelta(minutes=60)
+            if "Description" in df.columns and pd.notna(row.get("Description")):
+                ev.description = str(row["Description"])
+            if "Location" in df.columns and pd.notna(row.get("Location")):
+                ev.location = str(row["Location"])
 
-                ev = Event(name=name)
-                ev.begin = begin.to_pydatetime()
-                ev.end = end.to_pydatetime()
-
-            if desc is not None and pd.notna(row.get(desc)):
-                ev.description = str(row.get(desc))
-            if loc is not None and pd.notna(row.get(loc)):
-                ev.location = str(row.get(loc))
-
-            # aggiunge DTSTAMP richiesto da RFC 5545
+            # DTSTAMP richiesto da RFC 5545
             ev.created = datetime.now(timezone.utc)
 
             cal.events.add(ev)
@@ -144,7 +83,6 @@ def csv_text_to_ics(csv_text: str) -> tuple[str, int]:
     return str(cal), len(cal.events)
 
 # --- Azione principale ------------------------------------------------------
-
 if run_btn:
     if not uploaded_xlsx:
         st.error("Per favore carica un file .xlsx prima di procedere.")
@@ -168,25 +106,21 @@ if run_btn:
 
     try:
         if not script_path.exists():
-            st.warning("conversione_turni.py non è stato trovato accanto a questa app. Verrà utilizzato direttamente il contenuto del file Excel caricato come df_final.")
+            st.warning("`conversione_turni.py` non è stato trovato accanto a questa app. Verrà utilizzato direttamente il contenuto del file Excel caricato come `df_final`.")
             df_final = pd.read_excel(excel_path)
         else:
             with st.spinner("Esecuzione di conversione_turni.py..."):
                 try:
                     df_final, _ = run_conversion_script(script_path, excel_path, surname)
-                except NameError as e:
-                    if "morning" in str(e).lower():
-                        st.error("⚠️ Cognome non trovato nel file Excel.")
-                        st.stop()
-                    else:
-                        raise  # altri NameError vengono rialzati normalmente
-
+                except NameError:
+                    st.error("⚠️ Cognome non trovato nel file Excel.")
+                    st.stop()
 
         if not isinstance(df_final, pd.DataFrame):
             try:
                 df_final = pd.DataFrame(df_final)
-            except Exception as _:
-                st.error("df_final non può essere convertito in DataFrame. Assicurati che lo script produca un pandas DataFrame chiamato df_final.")
+            except Exception:
+                st.error("`df_final` non può essere convertito in DataFrame. Assicurati che lo script produca un pandas DataFrame chiamato `df_final`.")
                 st.stop()
 
         st.success("Conversione completata!")
@@ -222,7 +156,7 @@ if run_btn:
         save_path_csv = app_dir / out_name_csv
         try:
             save_path_csv.write_text(csv_text, encoding="utf-8")
-            st.caption(f"Copia CSV salvata in: {save_path_csv}")
+            st.caption(f"Copia CSV salvata in: `{save_path_csv}`")
         except Exception:
             pass
 
@@ -235,7 +169,6 @@ with st.expander("Come funziona / Note"):
     st.markdown(
         """
         ### Come usare l'app
-
 
         1. **Carica il file Excel** con i tuoi turni utilizzando il pulsante in alto.
         2. **Inserisci il tuo cognome** nella casella di testo.
@@ -250,7 +183,6 @@ with st.expander("Come funziona / Note"):
                 - **Outlook (Windows)**
                 - **Thunderbird Lightning**
                 - Altri gestori di calendari compatibili con ICS
-
 
         In questo modo puoi avere i tuoi turni sincronizzati nel calendario che preferisci.
         """
